@@ -14,11 +14,18 @@ module.exports = NodeHelper.create({
 		console.log("Starting node helper: " + this.name);
 	},
 
-	loginUser: function(configPayload) {
-		const loginDetails = {
-			account: configPayload.username,
-			pwd: configPayload.password,
-		}
+	loginUser: function() {
+        const username = process.env.GOODWE_USERNAME;
+        const password = process.env.GOODWE_PASSWORD;
+
+        if (!username || !password) {
+                throw new Error("GoodWe credentials are not configured in the environment");
+        }
+
+        const loginDetails = {
+                account: username,
+                pwd: password,
+        }
 
 		const tokenHeader = {
 			version: "",
@@ -80,7 +87,7 @@ module.exports = NodeHelper.create({
 				self.sendSocketNotification("SOLAR_DATA", data["data"]);
 			})
 		} else if (notification === "LOGIN_USER") {
-			await this.loginUser(payload).then((res) => {
+			await this.loginUser().then((res) => {
 				SEMSToken = res["data"];
 				APIUrl = res["api"]
 				

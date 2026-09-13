@@ -52,9 +52,9 @@ Module.register("MMM-GoodWe", {
     },
 
     authenticateUser: function() {
-        Log.info("SolarApp: Retrieving Token"); 
+        Log.info("SolarApp: Retrieving Token");
 
-        this.sendSocketNotification("LOGIN_USER", this.config);
+        this.sendSocketNotification("LOGIN_USER", null);
     },
 
     loadGoodWeOptions: function() {
@@ -120,8 +120,8 @@ Module.register("MMM-GoodWe", {
         var wrapper = document.createElement("div");
         wrapper.className += "goodwe-content-wrapper"
         
-        if (this.config.username === "" || this.config.password === "") {
-            wrapper.innerHTML = "Missing configuration.";
+        if (!this.config.powerstationId) {
+            wrapper.innerHTML = "Missing powerstationId configuration.";
             return wrapper;
         }
 
