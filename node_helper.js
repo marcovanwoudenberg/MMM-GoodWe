@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-var fetch = require("node-fetch");
+const fetch = global.fetch || require("node-fetch");
 var NodeHelper = require("node_helper");
 var GoodWeOptions = require("./goodwe-options.json");
 
