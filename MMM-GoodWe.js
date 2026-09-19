@@ -44,6 +44,7 @@ Module.register("MMM-GoodWe", {
         // Schedule updates
         setInterval(function() {
             self.getSolarData();
+            self.getAlarmData();
             self.updateDom();
         }, this.config.refInterval);
     },
@@ -73,6 +74,13 @@ Module.register("MMM-GoodWe", {
 
         this.sendSocketNotification("GET_SOLAR", {
             config: this.config
+        });
+    },
+
+    // Request the latest SEMS+ alarms
+    getAlarmData: function() {
+        this.sendSocketNotification("GET_ALARMS", {
+            powerstationId: this.config.powerstationId
         });
     },
 
@@ -600,89 +608,95 @@ Module.register("MMM-GoodWe", {
         }
 
         // Alarm overview
-        if (
-            this.alarms &&
-            this.alarms.length > 0
-        ) {
-            var alarmDivider =
-                document.createElement("hr");
+        var alarmDivider = document.createElement("hr");
+        alarmDivider.className = "solar-width dimmed h-ruler";
+        wrapper.appendChild(alarmDivider);
 
-            alarmDivider.className +=
-                "solar-width dimmed h-ruler";
+        var alarmSection = document.createElement("div");
+        alarmSection.className = "goodwe-alarm-section";
 
-            wrapper.appendChild(
-                alarmDivider
-            );
+        const alarms = Array.isArray(this.alarms) ? this.alarms : [];
+        const isActiveAlarm = (alarm) => {
+            const recovered =
+                alarm.recoverytimes ||
+                alarm.recoverytime ||
+                alarm.recoverTime ||
+                alarm.recoveryTime;
 
-            var alarmTitle =
-                document.createElement("h2");
+            return !recovered;
+        };
 
-            alarmTitle.innerHTML =
-                "Storingen";
+        const activeAlarms = alarms.filter(isActiveAlarm);
+        const alarmState =
+            activeAlarms.length > 0
+                ? "active"
+                : alarms.length > 0
+                    ? "history"
+                    : "ok";
 
-            alarmTitle.className +=
-                " thin normal no-margin content-title";
+        alarmSection.classList.add("goodwe-alarm-" + alarmState);
 
-            wrapper.appendChild(
-                alarmTitle
-            );
+        var alarmHeader = document.createElement("div");
+        alarmHeader.className = "goodwe-alarm-header";
 
-            var alarmSummary =
-                document.createElement("div");
+        var alarmDot = document.createElement("span");
+        alarmDot.className = "goodwe-alarm-dot";
+        alarmHeader.appendChild(alarmDot);
 
-            alarmSummary.className +=
-                " medium regular bright";
+        var alarmTitle = document.createElement("span");
+        alarmTitle.className = "goodwe-alarm-title";
+        alarmTitle.textContent =
+            alarmState === "active"
+                ? "Actieve storing" + (activeAlarms.length === 1 ? "" : "en")
+                : alarmState === "history"
+                    ? "Recente storingen opgelost"
+                    : "Geen actuele storingen";
+        alarmHeader.appendChild(alarmTitle);
+        alarmSection.appendChild(alarmHeader);
 
-            alarmSummary.innerHTML =
-                this.alarms.length +
-                " storing" +
-                (
-                    this.alarms.length === 1
-                        ? ""
-                        : "en"
-                ) +
-                " gevonden";
+        if (alarms.length > 0) {
+            var alarmSummary = document.createElement("div");
+            alarmSummary.className = "goodwe-alarm-summary";
+            alarmSummary.textContent =
+                activeAlarms.length > 0
+                    ? activeAlarms.length +
+                      " actief · " +
+                      alarms.length +
+                      " recent"
+                    : alarms.length +
+                      " recente melding" +
+                      (alarms.length === 1 ? "" : "en");
+            alarmSection.appendChild(alarmSummary);
 
-            wrapper.appendChild(
-                alarmSummary
-            );
+            alarms.slice(0, 3).forEach((alarm) => {
+                var alarmItem = document.createElement("div");
+                alarmItem.className =
+                    "goodwe-alarm-item " +
+                    (isActiveAlarm(alarm)
+                        ? "goodwe-alarm-item-active"
+                        : "goodwe-alarm-item-resolved");
 
-            const latestAlarm =
-                this.alarms[0];
-
-            if (latestAlarm) {
-                var latestAlarmInfo =
-                    document.createElement(
-                        "div"
-                    );
-
-                latestAlarmInfo.className +=
-                    " small dimmed";
-
-                const alarmName =
-                    latestAlarm.warningNameEn ||
-                    latestAlarm.warningname ||
+                var alarmName = document.createElement("span");
+                alarmName.className = "goodwe-alarm-name";
+                alarmName.textContent =
+                    alarm.warningNameEn ||
+                    alarm.warningname ||
                     "Onbekende storing";
 
-                const alarmTime =
-                    latestAlarm.happentimes ||
-                    latestAlarm.happentime ||
+                var alarmTime = document.createElement("span");
+                alarmTime.className = "goodwe-alarm-time";
+                alarmTime.textContent =
+                    alarm.happentimes ||
+                    alarm.happentime ||
                     "";
 
-                latestAlarmInfo.innerHTML =
-                    alarmName +
-                    (
-                        alarmTime
-                            ? " - " +
-                              alarmTime
-                            : ""
-                    );
-
-                wrapper.appendChild(
-                    latestAlarmInfo
-                );
-            }
+                alarmItem.appendChild(alarmName);
+                alarmItem.appendChild(alarmTime);
+                alarmSection.appendChild(alarmItem);
+            });
         }
+
+        wrapper.appendChild(alarmSection);
 
         // return our document
         return wrapper;

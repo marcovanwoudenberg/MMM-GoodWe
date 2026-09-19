@@ -399,30 +399,6 @@ module.exports = NodeHelper.create({
                         `[SEMS-ALARM] Received ${alarms.length} alarm(s)`
                 );
 
-                alarms.forEach((alarm) => {
-                        console.log(
-                                "[SEMS-ALARM]",
-                                {
-                                        name:
-                                                alarm.warningNameEn ||
-                                                alarm.warningname,
-
-                                        code:
-                                                alarm.warning_code,
-
-                                        errorCode:
-                                                alarm.error_code,
-
-                                        happened:
-                                                alarm.happentimes,
-
-                                        recovered:
-                                                alarm.recoverytimes ||
-                                                null
-                                }
-                        );
-                });
-
                 this.sendSocketNotification(
                         "ALARM_DATA",
                         alarms
@@ -553,6 +529,49 @@ module.exports = NodeHelper.create({
                                         "[MMM-GoodWe] Login failed:",
                                         error.message
                                 );
+                        }
+
+                } else if (
+                        notification ===
+                        "GET_ALARMS"
+                ) {
+                        const stationId =
+                                payload?.powerstationId;
+
+                        if (!stationId) {
+                                console.error(
+                                        "[SEMS-ALARM] Alarm refresh skipped: no station configured"
+                                );
+                                return;
+                        }
+
+                        try {
+                                if (!semsPlusSession) {
+                                        semsPlusSession =
+                                                await this.loginSemsPlus();
+                                }
+
+                                await this.getAlarmPage(
+                                        stationId
+                                );
+                        } catch (error) {
+                                console.warn(
+                                        "[SEMS-ALARM] Refresh failed; renewing SEMS+ session"
+                                );
+
+                                try {
+                                        semsPlusSession =
+                                                await this.loginSemsPlus();
+
+                                        await this.getAlarmPage(
+                                                stationId
+                                        );
+                                } catch (retryError) {
+                                        console.error(
+                                                "[SEMS-ALARM] Refresh failed after session renewal:",
+                                                retryError.message
+                                        );
+                                }
                         }
 
                 } else if (
