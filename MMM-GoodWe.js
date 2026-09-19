@@ -6,7 +6,7 @@ Module.register("MMM-GoodWe", {
         basicHeader: false,
     },
 
-    start: async function() {
+    start: async function () {
         // Logging appears in Chrome developer tools console
         Log.info("Starting module: " + this.name);
         this.titles = ["Huidig Vermogen", "Vandaag opgewekt", "Totaal opgewekt"];
@@ -41,20 +41,24 @@ Module.register("MMM-GoodWe", {
 
         var self = this;
 
-        // Schedule updates
-        setInterval(function() {
+        // Solar data keeps using the configured refresh interval
+        setInterval(function () {
             self.getSolarData();
-            self.getAlarmData();
             self.updateDom();
         }, this.config.refInterval);
+
+        // SEMS+ alarms only need to be checked every 5 minutes
+        setInterval(function () {
+            self.getAlarmData();
+        }, 5 * 60 * 1000);
     },
 
     // Import additional CSS Styles
-    getStyles: function() {
+    getStyles: function () {
         return ["solar.css"];
     },
 
-    authenticateUser: function() {
+    authenticateUser: function () {
         Log.info("SolarApp: Retrieving Token");
 
         this.sendSocketNotification("LOGIN_USER", {
@@ -62,14 +66,14 @@ Module.register("MMM-GoodWe", {
         });
     },
 
-    loadGoodWeOptions: function() {
+    loadGoodWeOptions: function () {
         Log.info("SolarApp: Retrieving Options");
 
         this.sendSocketNotification("LOAD_OPTIONS", null);
     },
 
     // Contact node helper for solar data
-    getSolarData: function() {
+    getSolarData: function () {
         Log.info("SolarApp: getting data");
 
         this.sendSocketNotification("GET_SOLAR", {
@@ -78,14 +82,14 @@ Module.register("MMM-GoodWe", {
     },
 
     // Request the latest SEMS+ alarms
-    getAlarmData: function() {
+    getAlarmData: function () {
         this.sendSocketNotification("GET_ALARMS", {
             powerstationId: this.config.powerstationId
         });
     },
 
     // Handle node helper response
-    socketNotificationReceived: function(notification, payload) {
+    socketNotificationReceived: function (notification, payload) {
         if (notification === "SOLAR_DATA") {
             var currentPower = 0;
 
@@ -151,7 +155,7 @@ Module.register("MMM-GoodWe", {
     },
 
     // Override dom generator
-    getDom: function() {
+    getDom: function () {
         var wrapper = document.createElement("div");
         wrapper.className += "goodwe-content-wrapper";
 
@@ -660,12 +664,12 @@ Module.register("MMM-GoodWe", {
             alarmSummary.textContent =
                 activeAlarms.length > 0
                     ? activeAlarms.length +
-                      " actief · " +
-                      alarms.length +
-                      " recent"
+                    " actief · " +
+                    alarms.length +
+                    " recent"
                     : alarms.length +
-                      " recente melding" +
-                      (alarms.length === 1 ? "" : "en");
+                    " recente melding" +
+                    (alarms.length === 1 ? "" : "en");
             alarmSection.appendChild(alarmSummary);
 
             alarms.slice(0, 3).forEach((alarm) => {
