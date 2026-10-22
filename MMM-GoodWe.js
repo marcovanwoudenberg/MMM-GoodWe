@@ -195,7 +195,7 @@ Module.register("MMM-GoodWe", {
 
         var sTitle = document.createElement("p");
         sTitle.textContent = this.semsPlusPower !== null
-            ? "Vandaag: nog niet beschikbaar"
+            ? "Vandaag: nog niet beschikbaar (SEMS+ energiegegevens volgen)"
             : "Vandaag: " + this.dayGeneration;
 
         sTitle.className +=
@@ -223,7 +223,12 @@ Module.register("MMM-GoodWe", {
             }
             this.semsPlusPower.forEach((entry) => {
                 const line = document.createElement("p");
-                line.textContent = `${entry.label}: ${entry.value}`;
+                const watts = entry && typeof entry.watts === "number" && Number.isFinite(entry.watts) && entry.watts >= 0
+                    ? entry.watts : null;
+                const powerText = watts === null ? "Niet beschikbaar"
+                    : watts < 1000 ? `${Math.round(watts)} W`
+                    : `${(watts / 1000).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kW`;
+                line.textContent = `${entry.label}: ${powerText}`;
                 powerSection.appendChild(line);
             });
             wrapper.appendChild(powerSection);

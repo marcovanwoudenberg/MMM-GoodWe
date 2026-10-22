@@ -552,11 +552,15 @@ module.exports = NodeHelper.create({
                         for (const sn of serials) {
                                 const groups = await request(`/sems-plant/api/equipments/${encodeURIComponent(sn)}/telemetry?deviceType=INVERTER&pwId=${encodeURIComponent(stationId)}`);
                                 const factor = (Array.isArray(groups) ? groups : []).flatMap(g => Array.isArray(g.factors) ? g.factors : []).find(f => f?.code === "pAc");
-                                const value = factor?.data;
-                                // Do not assume watts or kilowatts. Keep the original value/unit text.
-                                power.push({ label: `Omvormer ${power.length + 1}`, value: value == null || String(value).trim() === "" ? "Niet beschikbaar" : String(value).slice(0, 50) });
+                                const raw = factor?.data;
+                                // SEMS+ pAc is expressed in kW (verified against the SEMS+ UI).
+                                // Do not turn missing, invalid or negative readings into zero.
+                                const normalized = typeof raw === "string" ? raw.trim().replace(",", ".") : raw;
+                                const kw = normalized === "" || normalized == null ? NaN : Number(normalized);
+                                const watts = Number.isFinite(kw) && kw >= 0 ? Math.round(kw * 1000) : null;
+                                power.push({ label: `Omvormer ${power.length + 1}`, watts });
                         }
-                        console.log(`[SEMS-PLUS][POWER-V6] Received power fields for ${power.length} inverter(s)`);
+                        console.log(`[SEMS-PLUS][POWER-V7] Received power fields for ${power.length} inverter(s)`);
                         this.sendSocketNotification("SOLAR_POWER", power);
                 } catch (error) {
                         if (retry) {
@@ -565,7 +569,7 @@ module.exports = NodeHelper.create({
                                         return await this.getSemsPlusPower(stationId, false);
                                 } catch (_) { /* error reported below */ }
                         }
-                        console.warn("[SEMS-PLUS][POWER-V6] Unable to refresh power data:", error.message);
+                        console.warn("[SEMS-PLUS][POWER-V7] Unable to refresh power data:", error.message);
                 }
         },
 
