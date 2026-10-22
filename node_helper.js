@@ -549,19 +549,46 @@ module.exports = NodeHelper.create({
                                 }
                         }
                         const power = [];
+                        const energyCodes = ["proPvStatsToday", "proPvStatsWeek", "proPvStatsMonth", "proPvStatsYear", "proPvStatsTotal"];
+                        const readKwh = (factor) => {
+                                if (!factor || factor.data == null || String(factor.data).trim() === "") return null;
+                                if (factor.unit && factor.unit !== "kWh") return null;
+                                const value = Number(String(factor.data).trim().replace(",", "."));
+                                return Number.isFinite(value) && value >= 0 ? value : null;
+                        };
                         for (const sn of serials) {
-                                const groups = await request(`/sems-plant/api/equipments/${encodeURIComponent(sn)}/telemetry?deviceType=INVERTER&pwId=${encodeURIComponent(stationId)}`);
-                                const factor = (Array.isArray(groups) ? groups : []).flatMap(g => Array.isArray(g.factors) ? g.factors : []).find(f => f?.code === "pAc");
-                                const raw = factor?.data;
-                                // SEMS+ pAc is expressed in kW (verified against the SEMS+ UI).
-                                // Do not turn missing, invalid or negative readings into zero.
-                                const normalized = typeof raw === "string" ? raw.trim().replace(",", ".") : raw;
-                                const kw = normalized === "" || normalized == null ? NaN : Number(normalized);
-                                const watts = Number.isFinite(kw) && kw >= 0 ? Math.round(kw * 1000) : null;
-                                power.push({ label: `Omvormer ${power.length + 1}`, watts });
+                                const index = power.length + 1;
+                                const label = `Omvormer ${index}`;
+                                const entry = { label, watts: null, energy: {} };
+                                try {
+                                        const groups = await request(`/sems-plant/api/equipments/${encodeURIComponent(sn)}/telemetry?deviceType=INVERTER&pwId=${encodeURIComponent(stationId)}`);
+                                        const factor = (Array.isArray(groups) ? groups : []).flatMap(g => Array.isArray(g.factors) ? g.factors : []).find(f => f?.code === "pAc");
+                                        const raw = factor?.data;
+                                        const normalized = typeof raw === "string" ? raw.trim().replace(",", ".") : raw;
+                                        const kw = normalized === "" || normalized == null ? NaN : Number(normalized);
+                                        entry.watts = Number.isFinite(kw) && kw >= 0 ? Math.round(kw * 1000) : null;
+                                } catch (_) {
+                                        console.warn(`[SEMS-PLUS][ENERGY-V10] Telemetry unavailable for inverter ${index}`);
+                                }
+                                try {
+                                        const groups = await request(`/sems-plant/api/equipments/${encodeURIComponent(sn)}/telecounting?deviceType=INVERTER&pwId=${encodeURIComponent(stationId)}`);
+                                        const factors = (Array.isArray(groups) ? groups : []).flatMap(g => Array.isArray(g.factors) ? g.factors : []);
+                                        for (const code of energyCodes) entry.energy[code] = readKwh(factors.find(f => f?.code === code));
+                                } catch (_) {
+                                        console.warn(`[SEMS-PLUS][ENERGY-V10] Energy counters unavailable for inverter ${index}`);
+                                        for (const code of energyCodes) entry.energy[code] = null;
+                                }
+                                power.push(entry);
                         }
-                        console.log(`[SEMS-PLUS][POWER-V7] Received power fields for ${power.length} inverter(s)`);
+                        const totals = {};
+                        for (const code of energyCodes) {
+                                totals[code] = power.length && power.every(entry => entry.energy[code] !== null)
+                                        ? Math.round(power.reduce((sum, entry) => sum + entry.energy[code], 0) * 1000) / 1000
+                                        : null;
+                        }
+                        console.log(`[SEMS-PLUS][ENERGY-V10] inverterCount=${power.length}, completeCounters=${energyCodes.filter(code => totals[code] !== null).join(",") || "none"}`);
                         this.sendSocketNotification("SOLAR_POWER", power);
+                        this.sendSocketNotification("SOLAR_ENERGY", { totals, inverterCount: power.length });
                 } catch (error) {
                         if (retry) {
                                 try {
@@ -669,7 +696,6 @@ module.exports = NodeHelper.create({
                                 if (stationId) {
                                         await this.getSemsPlusPower(stationId);
                                         await this.getAlarmPage(stationId);
-                                        await this.diagnoseEnergyCountersV9(stationId);
                                 } else {
                                         console.warn("[SEMS-PLUS] Station not configured");
                                 }

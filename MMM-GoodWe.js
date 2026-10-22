@@ -22,6 +22,7 @@ Module.register("MMM-GoodWe", {
         this.goodWeOptions = null;
         this.alarms = [];
         this.semsPlusPower = null;
+        this.semsPlusEnergy = null;
 
         if (this.config.totalCapacity !== 0) {
             this.totalCapacity = this.config.totalCapacity;
@@ -138,6 +139,10 @@ Module.register("MMM-GoodWe", {
             this.loaded = true;
             this.updateDom(1000);
 
+        } else if (notification === "SOLAR_ENERGY") {
+            this.semsPlusEnergy = payload && payload.totals ? payload.totals : null;
+            this.updateDom(1000);
+
         } else if (notification === "LOGIN_USER") {
             Log.info(
                 `%c[SEMS-API][OK] - Authenticated`,
@@ -195,7 +200,9 @@ Module.register("MMM-GoodWe", {
 
         var sTitle = document.createElement("p");
         sTitle.textContent = this.semsPlusPower !== null
-            ? "Vandaag: nog niet beschikbaar (SEMS+ energiegegevens volgen)"
+            ? "Vandaag: " + (this.semsPlusEnergy && this.semsPlusEnergy.proPvStatsToday !== null
+                ? this.semsPlusEnergy.proPvStatsToday.toLocaleString("nl-NL", { maximumFractionDigits: 2 }) + " kWh"
+                : "Niet beschikbaar")
             : "Vandaag: " + this.dayGeneration;
 
         sTitle.className +=
@@ -228,9 +235,26 @@ Module.register("MMM-GoodWe", {
                 const powerText = watts === null ? "Niet beschikbaar"
                     : watts < 1000 ? `${Math.round(watts)} W`
                     : `${(watts / 1000).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kW`;
-                line.textContent = `${entry.label}: ${powerText}`;
+                const today = entry?.energy?.proPvStatsToday;
+                const lifetime = entry?.energy?.proPvStatsTotal;
+                const fmt = (value) => typeof value === "number" && Number.isFinite(value)
+                    ? value.toLocaleString("nl-NL", { maximumFractionDigits: 2 }) + " kWh"
+                    : "Niet beschikbaar";
+                line.textContent = `${entry.label}: ${powerText} · Vandaag: ${fmt(today)} · Totaal: ${fmt(lifetime)}`;
                 powerSection.appendChild(line);
             });
+            if (this.semsPlusEnergy) {
+                const totals = this.semsPlusEnergy;
+                const fmt = (value) => typeof value === "number" && Number.isFinite(value)
+                    ? value.toLocaleString("nl-NL", { maximumFractionDigits: 2 }) + " kWh"
+                    : "Niet beschikbaar";
+                const totalLine = document.createElement("p");
+                totalLine.textContent = `Totaal opgewekt: ${fmt(totals.proPvStatsTotal)}`;
+                powerSection.appendChild(totalLine);
+                const periodLine = document.createElement("p");
+                periodLine.textContent = `Week: ${fmt(totals.proPvStatsWeek)} · Maand: ${fmt(totals.proPvStatsMonth)} · Jaar: ${fmt(totals.proPvStatsYear)}`;
+                powerSection.appendChild(periodLine);
+            }
             wrapper.appendChild(powerSection);
         }
 
