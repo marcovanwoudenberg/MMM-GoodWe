@@ -5,17 +5,9 @@ const crypto = require("node:crypto");
 const NodeHelper = require("node_helper");
 const GoodWeOptions = require("./goodwe-options.json");
 
-const loginUrl =
-        "https://www.semsportal.com/api/v2/Common/CrossLogin";
-
-const powerStationURLPart =
-        "v2/PowerStation/GetMonitorDetailByPowerstationId";
-
 const semsPlusLoginUrl =
         "https://eu-semsplus.goodwe.com/web/sems/sems-user/api/v1/auth/cross-login";
 
-let SEMSToken = null;
-let APIUrl = null;
 let semsPlusSession = null;
 
 module.exports = NodeHelper.create({
@@ -40,65 +32,6 @@ module.exports = NodeHelper.create({
                                 "utf8"
                         )
                         .toString("base64");
-        },
-
-        loginUser: async function () {
-                const username =
-                        process.env.GOODWE_USERNAME;
-
-                const password =
-                        process.env.GOODWE_PASSWORD;
-
-                if (!username || !password) {
-                        throw new Error(
-                                "GoodWe credentials are not configured in the environment"
-                        );
-                }
-
-                const loginDetails = {
-                        account: username,
-                        pwd: password
-                };
-
-                const tokenHeader = {
-                        version: "",
-                        client: "ios",
-                        language: "en"
-                };
-
-                const options = {
-                        method: "POST",
-                        body: JSON.stringify(
-                                loginDetails
-                        ),
-                        headers: {
-                                "Content-Type":
-                                        "application/json",
-                                "Accept":
-                                        "application/json",
-                                "token":
-                                        JSON.stringify(
-                                                tokenHeader
-                                        )
-                        }
-                };
-
-                const res = await fetch(
-                        loginUrl,
-                        options
-                );
-
-                if (!res.ok) {
-                        throw new Error(
-                                `SEMS legacy login failed with HTTP ${res.status}`
-                        );
-                }
-
-                console.log(
-                        `\x1b[32m[SEMS-API][${res.status}] - Authenticated\x1b[0m`
-                );
-
-                return res.json();
         },
 
         loginSemsPlus: async function () {
@@ -405,146 +338,93 @@ module.exports = NodeHelper.create({
                 return alarms;
         },
 
+        // Temporary read-only SEMS+ station discovery. No identifiers or tokens are logged.
+        diagnoseSemsPlusStation: async function (stationId) {
+                if (!stationId || !semsPlusSession?.api) {
+                        throw new Error("Missing station ID or SEMS+ session");
+                }
+
+                const gateway = semsPlusSession.api.replace(/\/$/, "");
+                const headers = {
+                        "Accept": "application/json, text/plain, */*",
+                        "token": JSON.stringify({
+                                uid: semsPlusSession.uid,
+                                timestamp: String(semsPlusSession.timestamp),
+                                token: semsPlusSession.token,
+                                client: "semsPlusWeb",
+                                version: "",
+                                language: "nl",
+                                api: semsPlusSession.api,
+                                region: semsPlusSession.region || "eu",
+                                uuid: semsPlusSession.uuid || process.env.GOODWE_SEMSPLUS_UUID
+                        }),
+                        "uuid": semsPlusSession.uuid || process.env.GOODWE_SEMSPLUS_UUID,
+                        "x-signature": this.gatewaySignature(semsPlusSession.uid, semsPlusSession.token)
+                };
+
+                const endpoints = [
+                        {
+                                name: "device-types",
+                                path: "/sems-plant/api/web/device/getAllDeviceType?stationId=" + encodeURIComponent(stationId)
+                        },
+                        {
+                                name: "device-status",
+                                path: "/sems-plant/api/stations/device/all-status?stationId=" + encodeURIComponent(stationId)
+                        }
+                ];
+
+                for (const endpoint of endpoints) {
+                        try {
+                                const response = await fetch(gateway + endpoint.path, {
+                                        method: "GET",
+                                        headers,
+                                        signal: AbortSignal.timeout(15000)
+                                });
+                                const contentType = response.headers.get("content-type") || "";
+                                if (!contentType.includes("json")) {
+                                        console.warn(`[SEMS-PLUS][DIAG] ${endpoint.name}: HTTP ${response.status}, non-JSON response`);
+                                        continue;
+                                }
+                                const result = await response.json();
+                                const details = result?.data?.deviceDetailList;
+                                console.log("[SEMS-PLUS][DIAG]", {
+                                        endpoint: endpoint.name,
+                                        httpStatus: response.status,
+                                        apiCode: typeof result?.code === "string" || typeof result?.code === "number" ? result.code : null,
+                                        dataIsArray: Array.isArray(result?.data),
+                                        deviceTypeCount: Array.isArray(result?.data) ? result.data.length : null,
+                                        deviceGroupCount: Array.isArray(details) ? details.length : null,
+                                        hasData: result?.data != null
+                                });
+                        } catch (error) {
+                                console.warn(`[SEMS-PLUS][DIAG] ${endpoint.name} failed: ${error.name === "TimeoutError" ? "timeout" : "request/parse error"}`);
+                        }
+                }
+        },
+
         socketNotificationReceived: async function (
                 notification,
                 payload
         ) {
                 if (notification === "GET_SOLAR") {
-                        const getInfoUrl =
-                                APIUrl +
-                                powerStationURLPart;
+                        // Solar data is intentionally disabled until the SEMS+ data mapping is verified.
+                        // Keep the alarm service independent and avoid repeated legacy API requests.
+                        return;
 
-                        const powerStationDetails = {
-                                powerStationId:
-                                        payload.config
-                                                .powerstationId
-                        };
-
-                        const options = {
-                                method: "POST",
-
-                                body:
-                                        JSON.stringify(
-                                                powerStationDetails
-                                        ),
-
-                                headers: {
-                                        "Content-Type":
-                                                "application/json",
-
-                                        "Accept":
-                                                "application/json",
-
-                                        "token":
-                                                JSON.stringify(
-                                                        SEMSToken
-                                                )
-                                }
-                        };
-
+                } else if (notification === "LOGIN_USER") {
                         try {
-                                const res =
-                                        await fetch(
-                                                getInfoUrl,
-                                                options
-                                        );
-
-                                if (!res.ok) {
-                                        throw new Error(
-                                                `Solar data request failed with HTTP ${res.status}`
-                                        );
-                                }
-
-                                console.log(
-                                        `\x1b[32m[SEMS-API][${res.status}] - Received Solar Data\x1b[0m`
-                                );
-
-                                const data =
-                                        await res.json();
-
-                                console.log("[SEMS-API] Solar payload structure:", {
-                                        hasData: !!data?.data,
-                                        hasInverters: Array.isArray(data?.data?.inverter),
-                                        inverterCount: Array.isArray(data?.data?.inverter)
-                                                ? data.data.inverter.length
-                                                : 0,
-                                        hasKpi: !!data?.data?.kpi
-                                });
-
-                                this.sendSocketNotification(
-                                        "SOLAR_DATA",
-                                        data["data"]
-                                );
-                        } catch (error) {
-                                console.error(
-                                        "[SEMS-API] Solar data request failed:",
-                                        error.message
-                                );
-                        }
-
-                } else if (
-                        notification ===
-                        "LOGIN_USER"
-                ) {
-                        try {
-                                const res =
-                                        await this.loginUser();
-
-                                console.log("[SEMS-API] Login response structure:", {
-                                        hasData: !!res?.data,
-                                        hasApi: typeof res?.api === "string" && res.api.length > 0,
-                                        hasNestedApi: typeof res?.data?.api === "string",
-                                        responseCode: res?.code ?? null
-                                });
-
-                                SEMSToken =
-                                        res["data"];
-
-                                APIUrl =
-                                        res["api"];
-
-                                this.sendSocketNotification(
-                                        "LOGIN_USER",
-                                        "Success"
-                                );
-
-                                semsPlusSession =
-                                        await this.loginSemsPlus();
-
-                                console.log(
-                                        "[SEMS-PLUS] Session ready:",
-                                        {
-                                                client:
-                                                        semsPlusSession.client,
-
-                                                region:
-                                                        semsPlusSession.region,
-
-                                                api:
-                                                        semsPlusSession.api
-                                        }
-                                );
-
-                                const stationId =
-                                        payload?.powerstationId;
-
+                                semsPlusSession = await this.loginSemsPlus();
+                                console.log("[SEMS-PLUS] Session established; checking station endpoints");
+                                const stationId = payload?.powerstationId;
                                 if (stationId) {
-                                        await this.getAlarmPage(
-                                                stationId
-                                        );
+                                        await this.diagnoseSemsPlusStation(stationId);
+                                        await this.getAlarmPage(stationId);
                                 } else {
-                                        console.log(
-                                                "[SEMS-ALARM] No stationId available"
-                                        );
+                                        console.warn("[SEMS-PLUS] Station not configured");
                                 }
-
                         } catch (error) {
-                                console.error(
-                                        "[MMM-GoodWe] Login failed:",
-                                        error.message
-                                );
+                                console.error("[SEMS-PLUS] Initialization failed:", error.message);
                         }
-
                 } else if (
                         notification ===
                         "GET_ALARMS"
