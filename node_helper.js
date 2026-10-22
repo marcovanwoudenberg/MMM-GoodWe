@@ -213,9 +213,8 @@ module.exports = NodeHelper.create({
                         data.code !== "00000"
                 ) {
                         throw new Error(
-                                `SEMS+ login failed: ${
-                                        data.code ||
-                                        res.status
+                                `SEMS+ login failed: ${data.code ||
+                                res.status
                                 }`
                         );
                 }
@@ -384,9 +383,8 @@ module.exports = NodeHelper.create({
                         data.code !== "00000"
                 ) {
                         throw new Error(
-                                `SEMS+ alarm request failed: ${
-                                        data.code ||
-                                        res.status
+                                `SEMS+ alarm request failed: ${data.code ||
+                                res.status
                                 }`
                         );
                 }
@@ -463,6 +461,15 @@ module.exports = NodeHelper.create({
 
                                 const data =
                                         await res.json();
+
+                                console.log("[SEMS-API] Solar payload structure:", {
+                                        hasData: !!data?.data,
+                                        hasInverters: Array.isArray(data?.data?.inverter),
+                                        inverterCount: Array.isArray(data?.data?.inverter)
+                                                ? data.data.inverter.length
+                                                : 0,
+                                        hasKpi: !!data?.data?.kpi
+                                });
 
                                 this.sendSocketNotification(
                                         "SOLAR_DATA",
