@@ -506,13 +506,75 @@ module.exports = NodeHelper.create({
                 }
         },
 
+
+        // SEMS+ live AC power, using the confirmed device-status and telemetry endpoints.
+        // Values are displayed as supplied until their units have been verified.
+        getSemsPlusPower: async function (stationId, retry = true) {
+                if (!stationId) return;
+                try {
+                        if (!semsPlusSession) semsPlusSession = await this.loginSemsPlus();
+                        const gateway = semsPlusSession.api.replace(/\/$/, "");
+                        const headers = {
+                                "Accept": "application/json, text/plain, */*",
+                                "token": JSON.stringify({
+                                        uid: semsPlusSession.uid,
+                                        timestamp: String(semsPlusSession.timestamp),
+                                        token: semsPlusSession.token,
+                                        client: "semsPlusWeb", version: "", language: "nl",
+                                        api: semsPlusSession.api,
+                                        region: semsPlusSession.region || "eu",
+                                        uuid: semsPlusSession.uuid || process.env.GOODWE_SEMSPLUS_UUID
+                                }),
+                                "uuid": semsPlusSession.uuid || process.env.GOODWE_SEMSPLUS_UUID
+                        };
+                        const request = async (path) => {
+                                const response = await fetch(gateway + path, {
+                                        method: "GET",
+                                        headers: { ...headers, "x-signature": this.gatewaySignature(semsPlusSession.uid, semsPlusSession.token) },
+                                        signal: AbortSignal.timeout(15000)
+                                });
+                                if (!(response.headers.get("content-type") || "").includes("json")) throw new Error(`Non-JSON response (HTTP ${response.status})`);
+                                const result = await response.json();
+                                if (!response.ok || result?.code !== "00000") throw new Error(`SEMS+ API error (HTTP ${response.status})`);
+                                return result.data;
+                        };
+                        const status = await request(`/sems-plant/api/stations/device/all-status?stationId=${encodeURIComponent(stationId)}`);
+                        const serials = [];
+                        for (const group of (status?.deviceDetailList || [])) {
+                                if (group?.deviceType !== "INVERTER") continue;
+                                for (const state of (group.statusDetailList || [])) {
+                                        for (const sn of (state.snList || [])) {
+                                                if (typeof sn === "string" && sn && !serials.includes(sn)) serials.push(sn);
+                                        }
+                                }
+                        }
+                        const power = [];
+                        for (const sn of serials) {
+                                const groups = await request(`/sems-plant/api/equipments/${encodeURIComponent(sn)}/telemetry?deviceType=INVERTER&pwId=${encodeURIComponent(stationId)}`);
+                                const factor = (Array.isArray(groups) ? groups : []).flatMap(g => Array.isArray(g.factors) ? g.factors : []).find(f => f?.code === "pAc");
+                                const value = factor?.data;
+                                // Do not assume watts or kilowatts. Keep the original value/unit text.
+                                power.push({ label: `Omvormer ${power.length + 1}`, value: value == null || String(value).trim() === "" ? "Niet beschikbaar" : String(value).slice(0, 50) });
+                        }
+                        console.log(`[SEMS-PLUS][POWER-V6] Received power fields for ${power.length} inverter(s)`);
+                        this.sendSocketNotification("SOLAR_POWER", power);
+                } catch (error) {
+                        if (retry) {
+                                try {
+                                        semsPlusSession = await this.loginSemsPlus();
+                                        return await this.getSemsPlusPower(stationId, false);
+                                } catch (_) { /* error reported below */ }
+                        }
+                        console.warn("[SEMS-PLUS][POWER-V6] Unable to refresh power data:", error.message);
+                }
+        },
+
         socketNotificationReceived: async function (
                 notification,
                 payload
         ) {
                 if (notification === "GET_SOLAR") {
-                        // Solar data is intentionally disabled until the SEMS+ data mapping is verified.
-                        // Keep the alarm service independent and avoid repeated legacy API requests.
+                        await this.getSemsPlusPower(payload?.config?.powerstationId);
                         return;
 
                 } else if (notification === "LOGIN_USER") {
@@ -521,7 +583,7 @@ module.exports = NodeHelper.create({
                                 console.log("[SEMS-PLUS] Session established; checking station endpoints");
                                 const stationId = payload?.powerstationId;
                                 if (stationId) {
-                                        await this.diagnoseSemsPlusStation(stationId);
+                                        await this.getSemsPlusPower(stationId);
                                         await this.getAlarmPage(stationId);
                                 } else {
                                         console.warn("[SEMS-PLUS] Station not configured");

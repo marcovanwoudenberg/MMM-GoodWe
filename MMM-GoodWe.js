@@ -21,6 +21,7 @@ Module.register("MMM-GoodWe", {
         this.customGaugeColors = this.config.customGaugeColors;
         this.goodWeOptions = null;
         this.alarms = [];
+        this.semsPlusPower = null;
 
         if (this.config.totalCapacity !== 0) {
             this.totalCapacity = this.config.totalCapacity;
@@ -132,6 +133,11 @@ Module.register("MMM-GoodWe", {
             this.loaded = true;
             this.updateDom(1000);
 
+        } else if (notification === "SOLAR_POWER") {
+            this.semsPlusPower = Array.isArray(payload) ? payload : [];
+            this.loaded = true;
+            this.updateDom(1000);
+
         } else if (notification === "LOGIN_USER") {
             Log.info(
                 `%c[SEMS-API][OK] - Authenticated`,
@@ -188,8 +194,9 @@ Module.register("MMM-GoodWe", {
         }
 
         var sTitle = document.createElement("p");
-        sTitle.innerHTML =
-            "Vandaag: " + this.dayGeneration;
+        sTitle.textContent = this.semsPlusPower !== null
+            ? "Vandaag: nog niet beschikbaar"
+            : "Vandaag: " + this.dayGeneration;
 
         sTitle.className +=
             " thin normal main-title content-title";
@@ -203,7 +210,26 @@ Module.register("MMM-GoodWe", {
         divider.className +=
             "solar-width dimmed h-ruler";
 
-        if (this.config.showInverterGauges) {
+        if (this.semsPlusPower !== null) {
+            const powerSection = document.createElement("div");
+            powerSection.className = "goodwe-semsplus-power";
+            const heading = document.createElement("p");
+            heading.textContent = "Actueel omvormervermogen (SEMS+)";
+            powerSection.appendChild(heading);
+            if (this.semsPlusPower.length === 0) {
+                const line = document.createElement("p");
+                line.textContent = "Geen omvormers gevonden";
+                powerSection.appendChild(line);
+            }
+            this.semsPlusPower.forEach((entry) => {
+                const line = document.createElement("p");
+                line.textContent = `${entry.label}: ${entry.value}`;
+                powerSection.appendChild(line);
+            });
+            wrapper.appendChild(powerSection);
+        }
+
+        if (this.semsPlusPower === null && this.config.showInverterGauges) {
             var gaugeRow =
                 document.createElement("div");
 
@@ -319,7 +345,7 @@ Module.register("MMM-GoodWe", {
             wrapper.appendChild(gaugeRow);
         }
 
-        if (this.config.showInterverDetail) {
+        if (this.semsPlusPower === null && this.config.showInterverDetail) {
             for (
                 let i = 0;
                 i < this.inverters.length;
@@ -548,6 +574,7 @@ Module.register("MMM-GoodWe", {
 
         if (
             this.config.showBottomTotalGauge &&
+            this.semsPlusPower === null &&
             !this.invertersOffline
         ) {
             // setup bottom gauge
