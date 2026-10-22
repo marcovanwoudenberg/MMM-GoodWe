@@ -387,11 +387,12 @@ module.exports = NodeHelper.create({
                                 }
                                 const result = await response.json();
                                 const details = result?.data?.deviceDetailList;
+                                const statusGroups = Array.isArray(details) ? details.flatMap(item => Array.isArray(item?.statusDetailList) ? item.statusDetailList : []) : [];
                                 // Schema-only diagnostics: never print API values, IDs, or credentials.
                                 // Inspect at most one array element per level and bound output size.
                                 const schemaPaths = [];
                                 const inspectShape = (value, path, depth) => {
-                                        if (schemaPaths.length >= 45 || depth > 4 || value == null) return;
+                                        if (schemaPaths.length >= 65 || depth > 8 || value == null) return;
                                         if (Array.isArray(value)) {
                                                 schemaPaths.push(`${path}[] (array)`);
                                                 if (value.length > 0) inspectShape(value[0], `${path}[]`, depth + 1);
@@ -405,13 +406,13 @@ module.exports = NodeHelper.create({
                                                 /^[a-zA-Z][a-zA-Z0-9_]{0,49}$/.test(key) &&
                                                 !/(token|password|secret|uuid|serial|sn$|email|phone|account|user|signature|address|imei|mac|uid|id$|name)/i.test(key)
                                         );
-                                        for (const key of keys.slice(0, 24)) {
-                                                if (schemaPaths.length >= 45) break;
+                                        for (const key of keys.slice(0, 32)) {
+                                                if (schemaPaths.length >= 65) break;
                                                 inspectShape(value[key], `${path}.${key}`, depth + 1);
                                         }
                                 };
                                 inspectShape(result?.data, "data", 0);
-                                console.log(`[SEMS-PLUS][SCHEMA] ${endpoint.name}: ${JSON.stringify(schemaPaths)}`);
+                                console.log(`[SEMS-PLUS][SCHEMA-V3] ${endpoint.name}: ${JSON.stringify(schemaPaths)}`);
                                 console.log("[SEMS-PLUS][DIAG]", {
                                         endpoint: endpoint.name,
                                         httpStatus: response.status,
@@ -419,6 +420,7 @@ module.exports = NodeHelper.create({
                                         dataIsArray: Array.isArray(result?.data),
                                         deviceTypeCount: Array.isArray(result?.data) ? result.data.length : null,
                                         deviceGroupCount: Array.isArray(details) ? details.length : null,
+                                        statusGroupCount: statusGroups.length,
                                         hasData: result?.data != null
                                 });
                         } catch (error) {
