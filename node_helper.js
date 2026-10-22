@@ -413,6 +413,53 @@ module.exports = NodeHelper.create({
                                 };
                                 inspectShape(result?.data, "data", 0);
                                 console.log(`[SEMS-PLUS][SCHEMA-V3] ${endpoint.name}: ${JSON.stringify(schemaPaths)}`);
+                                if (endpoint.name === "device-status" && response.ok && result?.code === "00000") {
+                                        const inverters = [];
+                                        for (const group of (Array.isArray(details) ? details : [])) {
+                                                if (group?.deviceType !== "INVERTER") continue;
+                                                for (const statusGroup of (Array.isArray(group.statusDetailList) ? group.statusDetailList : [])) {
+                                                        for (const sn of (Array.isArray(statusGroup.snList) ? statusGroup.snList : [])) {
+                                                                if (typeof sn === "string" && sn.length && inverters.length < 2 && !inverters.includes(sn)) inverters.push(sn);
+                                                        }
+                                                }
+                                        }
+                                        console.log("[SEMS-PLUS][TELEMETRY-V4] inverterCountForTest:", inverters.length);
+                                        for (const sn of inverters) {
+                                                try {
+                                                        const path = `/sems-plant/api/equipments/${encodeURIComponent(sn)}/telemetry?deviceType=INVERTER&pwId=${encodeURIComponent(stationId)}`;
+                                                        const telemetryResponse = await fetch(gateway + path, {
+                                                                method: "GET",
+                                                                headers: { ...headers, "x-signature": this.gatewaySignature(semsPlusSession.uid, semsPlusSession.token) },
+                                                                signal: AbortSignal.timeout(15000)
+                                                        });
+                                                        const telemetryType = telemetryResponse.headers.get("content-type") || "";
+                                                        if (!telemetryType.includes("json")) {
+                                                                console.warn(`[SEMS-PLUS][TELEMETRY-V4] HTTP ${telemetryResponse.status}, non-JSON`);
+                                                                continue;
+                                                        }
+                                                        const telemetry = await telemetryResponse.json();
+                                                        const paths = [];
+                                                        const shape = (value, path, depth) => {
+                                                                if (paths.length >= 100 || depth > 7 || value == null) return;
+                                                                if (Array.isArray(value)) {
+                                                                        paths.push(`${path}[] (array)`);
+                                                                        if (value.length) shape(value[0], `${path}[]`, depth + 1);
+                                                                } else if (typeof value === "object") {
+                                                                        for (const key of Object.keys(value).slice(0, 45)) {
+                                                                                if (!/^[a-zA-Z][a-zA-Z0-9_:-]{0,49}$/.test(key) || /(token|password|secret|uuid|serial|sn$|email|phone|account|user|signature|address|imei|mac|uid|id$|name)/i.test(key)) continue;
+                                                                                shape(value[key], `${path}.${key}`, depth + 1);
+                                                                        }
+                                                                } else {
+                                                                        paths.push(`${path} (${typeof value})`);
+                                                                }
+                                                        };
+                                                        shape(telemetry?.data, "data", 0);
+                                                        console.log(`[SEMS-PLUS][TELEMETRY-V4] ${JSON.stringify({ httpStatus: telemetryResponse.status, apiCode: telemetry?.code ?? null, schema: paths })}`);
+                                                } catch (error) {
+                                                        console.warn(`[SEMS-PLUS][TELEMETRY-V4] request failed: ${error.name === "TimeoutError" ? "timeout" : "request/parse error"}`);
+                                                }
+                                        }
+                                }
                                 console.log("[SEMS-PLUS][DIAG]", {
                                         endpoint: endpoint.name,
                                         httpStatus: response.status,
