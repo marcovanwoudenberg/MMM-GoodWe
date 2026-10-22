@@ -573,6 +573,77 @@ module.exports = NodeHelper.create({
                 }
         },
 
+        // Read-only SEMS+ energy counter discovery. Logs field names, never values or IDs.
+        diagnoseEnergyCountersV8: async function (stationId) {
+                if (!stationId || !semsPlusSession?.api) return;
+                const gateway = semsPlusSession.api.replace(/\/$/, "");
+                const headers = {
+                        "Accept": "application/json, text/plain, */*",
+                        "token": JSON.stringify({
+                                uid: semsPlusSession.uid,
+                                timestamp: String(semsPlusSession.timestamp),
+                                token: semsPlusSession.token,
+                                client: "semsPlusWeb", version: "", language: "nl",
+                                api: semsPlusSession.api,
+                                region: semsPlusSession.region || "eu",
+                                uuid: semsPlusSession.uuid || process.env.GOODWE_SEMSPLUS_UUID
+                        }),
+                        "uuid": semsPlusSession.uuid || process.env.GOODWE_SEMSPLUS_UUID
+                };
+                const read = async (path) => {
+                        const response = await fetch(gateway + path, {
+                                method: "GET",
+                                headers: { ...headers, "x-signature": this.gatewaySignature(semsPlusSession.uid, semsPlusSession.token) },
+                                signal: AbortSignal.timeout(15000)
+                        });
+                        if (!(response.headers.get("content-type") || "").includes("json")) {
+                                return { httpStatus: response.status, apiCode: "non-json", data: null };
+                        }
+                        const result = await response.json();
+                        return { httpStatus: response.status, apiCode: String(result?.code ?? "missing"), data: response.ok && result?.code === "00000" ? result.data : null };
+                };
+                try {
+                        const status = await read(`/sems-plant/api/stations/device/all-status?stationId=${encodeURIComponent(stationId)}`);
+                        const serials = [];
+                        for (const group of (status.data?.deviceDetailList || [])) {
+                                if (group?.deviceType !== "INVERTER") continue;
+                                for (const state of (group.statusDetailList || [])) {
+                                        for (const sn of (state.snList || [])) {
+                                                if (typeof sn === "string" && sn && !serials.includes(sn)) serials.push(sn);
+                                        }
+                                }
+                        }
+                        console.log(`[SEMS-PLUS][ENERGY-V8] inverterCount: ${serials.length}`);
+                        const schema = (data) => {
+                                const result = [];
+                                const visit = (item, path, depth) => {
+                                        if (result.length >= 70 || depth > 5 || item == null) return;
+                                        if (Array.isArray(item)) {
+                                                result.push(`${path}[]`);
+                                                if (item.length) visit(item[0], `${path}[]`, depth + 1);
+                                        } else if (typeof item === "object") {
+                                                for (const key of Object.keys(item).slice(0, 45)) {
+                                                        if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,50}$/.test(key)) continue;
+                                                        if (/(token|password|secret|uuid|serial|sn$|email|phone|account|user|signature|address|imei|mac|uid|id$|name)/i.test(key)) continue;
+                                                        visit(item[key], `${path}.${key}`, depth + 1);
+                                                }
+                                        } else {
+                                                result.push(`${path} (${typeof item})`);
+                                        }
+                                };
+                                visit(data, "data", 0);
+                                return result;
+                        };
+                        for (const [index, sn] of serials.slice(0, 2).entries()) {
+                                const path = `/sems-plant/api/equipments/${encodeURIComponent(sn)}/telecounting?deviceType=INVERTER&pwId=${encodeURIComponent(stationId)}`;
+                                const result = await read(path);
+                                console.log(`[SEMS-PLUS][ENERGY-V8] ${JSON.stringify({ inverterIndex: index + 1, httpStatus: result.httpStatus, apiCode: result.apiCode, schema: schema(result.data) })}`);
+                        }
+                } catch (error) {
+                        console.warn(`[SEMS-PLUS][ENERGY-V8] Diagnostic failed: ${error.name === "TimeoutError" ? "timeout" : "request error"}`);
+                }
+        },
+
         socketNotificationReceived: async function (
                 notification,
                 payload
@@ -589,6 +660,7 @@ module.exports = NodeHelper.create({
                                 if (stationId) {
                                         await this.getSemsPlusPower(stationId);
                                         await this.getAlarmPage(stationId);
+                                        await this.diagnoseEnergyCountersV8(stationId);
                                 } else {
                                         console.warn("[SEMS-PLUS] Station not configured");
                                 }
