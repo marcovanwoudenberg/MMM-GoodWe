@@ -490,6 +490,13 @@ module.exports = NodeHelper.create({
                                 const res =
                                         await this.loginUser();
 
+                                console.log("[SEMS-API] Login response structure:", {
+                                        hasData: !!res?.data,
+                                        hasApi: typeof res?.api === "string" && res.api.length > 0,
+                                        hasNestedApi: typeof res?.data?.api === "string",
+                                        responseCode: res?.code ?? null
+                                });
+
                                 SEMSToken =
                                         res["data"];
 
