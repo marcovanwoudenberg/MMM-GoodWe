@@ -454,7 +454,37 @@ module.exports = NodeHelper.create({
                                                                 }
                                                         };
                                                         shape(telemetry?.data, "data", 0);
-                                                        console.log(`[SEMS-PLUS][TELEMETRY-V4] ${JSON.stringify({ httpStatus: telemetryResponse.status, apiCode: telemetry?.code ?? null, schema: paths })}`);
+                                                        // Diagnostic v5: list only measurement identifiers and types, never values or aliases.
+                                                        const safeIdentifier = (value) =>
+                                                                typeof value === "string" && /^[A-Za-z][A-Za-z0-9_.:-]{0,79}$/.test(value)
+                                                                        ? value
+                                                                        : null;
+                                                        const fields = [];
+                                                        const groups = Array.isArray(telemetry?.data) ? telemetry.data : [];
+                                                        for (const group of groups.slice(0, 30)) {
+                                                                const groupCode = safeIdentifier(group?.code);
+                                                                const factors = Array.isArray(group?.factors) ? group.factors : [];
+                                                                for (const factor of factors.slice(0, 100)) {
+                                                                        const code = safeIdentifier(factor?.code);
+                                                                        if (!code) continue;
+                                                                        fields.push({
+                                                                                group: groupCode,
+                                                                                code,
+                                                                                dataType: safeIdentifier(factor?.dataType),
+                                                                                hasData: factor?.data != null && String(factor.data).length > 0
+                                                                        });
+                                                                        if (fields.length >= 160) break;
+                                                                }
+                                                                if (fields.length >= 160) break;
+                                                        }
+                                                        console.log(`[SEMS-PLUS][TELEMETRY-V5] ${JSON.stringify({
+                                                                inverterIndex: inverters.indexOf(sn) + 1,
+                                                                httpStatus: telemetryResponse.status,
+                                                                apiCode: telemetry?.code ?? null,
+                                                                groupCount: groups.length,
+                                                                fieldCount: fields.length,
+                                                                fields
+                                                        })}`);
                                                 } catch (error) {
                                                         console.warn(`[SEMS-PLUS][TELEMETRY-V4] request failed: ${error.name === "TimeoutError" ? "timeout" : "request/parse error"}`);
                                                 }
