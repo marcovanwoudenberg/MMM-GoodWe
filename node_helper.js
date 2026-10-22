@@ -574,7 +574,7 @@ module.exports = NodeHelper.create({
         },
 
         // Read-only SEMS+ energy counter discovery. Logs field names, never values or IDs.
-        diagnoseEnergyCountersV8: async function (stationId) {
+        diagnoseEnergyCountersV9: async function (stationId) {
                 if (!stationId || !semsPlusSession?.api) return;
                 const gateway = semsPlusSession.api.replace(/\/$/, "");
                 const headers = {
@@ -637,7 +637,16 @@ module.exports = NodeHelper.create({
                         for (const [index, sn] of serials.slice(0, 2).entries()) {
                                 const path = `/sems-plant/api/equipments/${encodeURIComponent(sn)}/telecounting?deviceType=INVERTER&pwId=${encodeURIComponent(stationId)}`;
                                 const result = await read(path);
-                                console.log(`[SEMS-PLUS][ENERGY-V8] ${JSON.stringify({ inverterIndex: index + 1, httpStatus: result.httpStatus, apiCode: result.apiCode, schema: schema(result.data) })}`);
+                                const groups = Array.isArray(result.data) ? result.data : [];
+                                const fields = groups.map(group => ({
+                                        group: String(group?.code || "").slice(0, 60),
+                                        factors: (Array.isArray(group?.factors) ? group.factors : []).map(factor => ({
+                                                code: String(factor?.code || "").slice(0, 90),
+                                                unit: String(factor?.unit || "").slice(0, 24),
+                                                hasData: factor?.data !== null && factor?.data !== undefined && String(factor.data).trim() !== ""
+                                        })).filter(f => f.code && !/(serial|password|token|uuid|imei|mac|uid|email|phone|address|name|^sn$)/i.test(f.code))
+                                }));
+                                console.log(`[SEMS-PLUS][ENERGY-V9] ${JSON.stringify({ inverterIndex: index + 1, httpStatus: result.httpStatus, apiCode: result.apiCode, groups: fields })}`);
                         }
                 } catch (error) {
                         console.warn(`[SEMS-PLUS][ENERGY-V8] Diagnostic failed: ${error.name === "TimeoutError" ? "timeout" : "request error"}`);
@@ -660,7 +669,7 @@ module.exports = NodeHelper.create({
                                 if (stationId) {
                                         await this.getSemsPlusPower(stationId);
                                         await this.getAlarmPage(stationId);
-                                        await this.diagnoseEnergyCountersV8(stationId);
+                                        await this.diagnoseEnergyCountersV9(stationId);
                                 } else {
                                         console.warn("[SEMS-PLUS] Station not configured");
                                 }
