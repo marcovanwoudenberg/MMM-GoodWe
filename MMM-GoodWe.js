@@ -794,13 +794,27 @@ Module.register("MMM-GoodWe", {
         };
         hero("Actueel vermogen", power(totalPower), "Beide omvormers samen", "gwd-sun");
         hero("Vandaag opgewekt", energy(totals.proPvStatsToday), "Dagopbrengst", "gwd-green");
+        const alarms = Array.isArray(this.alarms) ? this.alarms : [];
+        const alarmCard = add(root, "div", "gwd-card gwd-alarm");
+        add(alarmCard, "div", "gwd-section-title", "⚠ Alarmmeldingen");
+        if (!alarms.length) add(alarmCard, "div", "gwd-ok", "● Geen alarmmeldingen ontvangen");
+        else {
+            add(alarmCard, "div", "gwd-alarm-count", `Laatste ${Math.min(alarms.length, 3)} meldingen`);
+            alarms.slice(0, 3).forEach(a => {
+                const item = add(alarmCard, "div", "gwd-alarm-item");
+                const label = a.warningNameEn || a.warningname || a.alarmName || a.alarmname || a.name || a.title || a.content || "Alarmmelding";
+                add(item, "span", "gwd-alarm-text", String(label));
+                const when = a.happentimes || a.happentime || a.startTime || a.createTime || "";
+                if (when) add(item, "span", "gwd-alarm-time", String(when));
+            });
+        }
         const inverterCard = add(root, "div", "gwd-card gwd-inverters");
         add(inverterCard, "div", "gwd-section-title", "Opbrengst per omvormer");
         if (!entries.length) add(inverterCard, "div", "gwd-empty", "Wachten op omvormergegevens…");
         entries.forEach((entry, i) => {
             const row = add(inverterCard, "div", "gwd-inverter");
             const top = add(row, "div", "gwd-inverter-top");
-            add(top, "strong", "", entry.label || `Omvormer ${i + 1}`);
+            add(top, "strong", "", (entry.label && !/^omvormer\s*\d+$/i.test(entry.label) ? entry.label : (["GW1500XS", "GW3000D"][i] || `Omvormer ${i + 1}`)));
             add(top, "strong", "gwd-inverter-power", power(entry.watts));
             const rated = Number.isFinite(entry.ratedPowerKw) ? entry.ratedPowerKw * 1000 : null;
             const pct = rated && Number.isFinite(entry.watts) ? Math.max(0, Math.min(100, entry.watts / rated * 100)) : 0;
@@ -817,17 +831,6 @@ Module.register("MMM-GoodWe", {
             add(card, "div", "gwd-label", label);
             add(card, "div", "gwd-metric-number", energy(totals[key]));
         });
-        const alarms = Array.isArray(this.alarms) ? this.alarms : [];
-        const alarmCard = add(root, "div", "gwd-card gwd-alarm");
-        add(alarmCard, "div", "gwd-section-title", "Alarmmeldingen");
-        if (!alarms.length) add(alarmCard, "div", "gwd-ok", "● Geen meldingen ontvangen");
-        else {
-            add(alarmCard, "div", "gwd-alarm-count", `${alarms.length} melding(en) ontvangen`);
-            alarms.slice(0, 3).forEach(a => {
-                const label = a.alarmName || a.alarmname || a.name || a.title || a.content || "Alarmmelding";
-                add(alarmCard, "div", "gwd-alarm-item", String(label));
-            });
-        }
         return root;
     }
 
