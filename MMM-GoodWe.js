@@ -4,6 +4,7 @@ Module.register("MMM-GoodWe", {
     defaults: {
         refInterval: 1000 * 60 * 5, //5 minutes
         basicHeader: false,
+        dashboardLayout: true,
     },
 
     start: async function () {
@@ -57,7 +58,7 @@ Module.register("MMM-GoodWe", {
 
     // Import additional CSS Styles
     getStyles: function () {
-        return ["solar.css"];
+        return ["solar.css", "goodwe-dashboard.css"];
     },
 
     authenticateUser: function () {
@@ -167,6 +168,7 @@ Module.register("MMM-GoodWe", {
 
     // Override dom generator
     getDom: function () {
+        if (this.config.dashboardLayout !== false) return this.getDashboardDom();
         var wrapper = document.createElement("div");
         wrapper.className += "goodwe-content-wrapper";
 
@@ -761,4 +763,72 @@ Module.register("MMM-GoodWe", {
         // return our document
         return wrapper;
     }
+    ,getDashboardDom: function () {
+        const root = document.createElement("section");
+        root.className = "goodwe-dashboard";
+        const add = (parent, tag, className, value) => {
+            const el = document.createElement(tag);
+            if (className) el.className = className;
+            if (value !== undefined) el.textContent = value;
+            parent.appendChild(el);
+            return el;
+        };
+        const fmt = (value, digits = 2) => typeof value === "number" && Number.isFinite(value)
+            ? value.toLocaleString("nl-NL", { maximumFractionDigits: digits }) : "—";
+        const energy = (value) => fmt(value) + (typeof value === "number" && Number.isFinite(value) ? " kWh" : "");
+        const power = (watts) => typeof watts !== "number" || !Number.isFinite(watts) ? "—"
+            : watts < 1000 ? `${Math.round(watts)} W` : `${fmt(watts / 1000)} kW`;
+        const entries = Array.isArray(this.semsPlusPower) ? this.semsPlusPower : [];
+        const totalPower = entries.length && entries.every(e => Number.isFinite(e?.watts))
+            ? entries.reduce((sum, e) => sum + e.watts, 0) : null;
+        const totals = this.semsPlusEnergy || {};
+        const head = add(root, "div", "gwd-head");
+        add(head, "div", "gwd-title", "☀  Zonnepanelen");
+        add(head, "span", "gwd-status", entries.length ? "● SEMS+ verbonden" : "○ Wachten op gegevens");
+        const heroes = add(root, "div", "gwd-heroes");
+        const hero = (label, value, sub, accent) => {
+            const card = add(heroes, "div", "gwd-card gwd-hero " + accent);
+            add(card, "div", "gwd-label", label);
+            add(card, "div", "gwd-number", value);
+            add(card, "div", "gwd-sub", sub);
+        };
+        hero("Actueel vermogen", power(totalPower), "Beide omvormers samen", "gwd-sun");
+        hero("Vandaag opgewekt", energy(totals.proPvStatsToday), "Dagopbrengst", "gwd-green");
+        const inverterCard = add(root, "div", "gwd-card gwd-inverters");
+        add(inverterCard, "div", "gwd-section-title", "Opbrengst per omvormer");
+        if (!entries.length) add(inverterCard, "div", "gwd-empty", "Wachten op omvormergegevens…");
+        entries.forEach((entry, i) => {
+            const row = add(inverterCard, "div", "gwd-inverter");
+            const top = add(row, "div", "gwd-inverter-top");
+            add(top, "strong", "", entry.label || `Omvormer ${i + 1}`);
+            add(top, "strong", "gwd-inverter-power", power(entry.watts));
+            const rated = Number.isFinite(entry.ratedPowerKw) ? entry.ratedPowerKw * 1000 : null;
+            const pct = rated && Number.isFinite(entry.watts) ? Math.max(0, Math.min(100, entry.watts / rated * 100)) : 0;
+            const track = add(row, "div", "gwd-track");
+            const fill = add(track, "div", "gwd-fill");
+            fill.style.width = pct + "%";
+            const stats = add(row, "div", "gwd-inverter-stats");
+            add(stats, "span", "", "Vandaag " + energy(entry.energy?.proPvStatsToday));
+            add(stats, "span", "", "Totaal " + energy(entry.energy?.proPvStatsTotal));
+        });
+        const metrics = add(root, "div", "gwd-metrics");
+        [["Deze week", "proPvStatsWeek"], ["Deze maand", "proPvStatsMonth"], ["Dit jaar", "proPvStatsYear"], ["Totaal opgewekt", "proPvStatsTotal"]].forEach(([label, key]) => {
+            const card = add(metrics, "div", "gwd-card gwd-metric");
+            add(card, "div", "gwd-label", label);
+            add(card, "div", "gwd-metric-number", energy(totals[key]));
+        });
+        const alarms = Array.isArray(this.alarms) ? this.alarms : [];
+        const alarmCard = add(root, "div", "gwd-card gwd-alarm");
+        add(alarmCard, "div", "gwd-section-title", "Alarmmeldingen");
+        if (!alarms.length) add(alarmCard, "div", "gwd-ok", "● Geen meldingen ontvangen");
+        else {
+            add(alarmCard, "div", "gwd-alarm-count", `${alarms.length} melding(en) ontvangen`);
+            alarms.slice(0, 3).forEach(a => {
+                const label = a.alarmName || a.alarmname || a.name || a.title || a.content || "Alarmmelding";
+                add(alarmCard, "div", "gwd-alarm-item", String(label));
+            });
+        }
+        return root;
+    }
+
 });
